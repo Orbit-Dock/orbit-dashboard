@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Orbit | Mission Control for Dev Teams</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+
+  <style>
+    body { background-color: #020617; color: #f8fafc; font-family: system-ui, sans-serif; }
+    .glow { box-shadow: 0 0 30px -5px rgba(99, 102, 241, 0.4); }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between p-6">
+
+  <!-- Header -->
+  <header class="max-w-6xl mx-auto w-full flex justify-between items-center py-4 border-b border-slate-800/80">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center glow">
+        <i data-lucide="atom" class="w-5 h-5 text-indigo-400"></i>
+      </div>
+      <span class="font-bold text-lg tracking-tight text-white">ORBIT</span>
+    </div>
+    <button onclick="openAuthModal()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow-lg shadow-indigo-600/25">
+      Sign In
+    </button>
+  </header>
+
+  <!-- Hero Section -->
+  <main class="max-w-4xl mx-auto text-center py-16">
+    <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-xs font-medium mb-6">
+      <span class="w-2 h-2 rounded-full bg-indigo-400 animate-pulse"></span> Open-Source Mission Control
+    </div>
+    <h1 class="text-4xl md:text-6xl font-extrabold tracking-tight text-white mb-6">
+      Real-Time Activity & Task Control for <span class="text-indigo-400">Dev Teams</span>
+    </h1>
+    <p class="text-slate-400 text-lg max-w-2xl mx-auto mb-10">
+      Track GitHub commits, pull requests, and team tasks in a unified mission control dashboard without the constant chat pings.
+    </p>
+    <div class="flex justify-center gap-4">
+      <button onclick="openAuthModal()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-xl font-medium transition glow">
+        Get Started Free
+      </button>
+      <a href="index.html" class="bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 px-6 py-3 rounded-xl font-medium transition">
+        View Live Demo
+      </a>
+    </div>
+  </main>
+
+  <!-- Firebase Auth Modal (Hidden by default) -->
+  <div id="authModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden items-center justify-center p-4 z-50">
+    <div class="bg-slate-900 border border-slate-800 p-8 rounded-2xl max-w-md w-full shadow-2xl relative">
+      <button onclick="closeAuthModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white">
+        <i data-lucide="x" class="w-5 h-5"></i>
+      </button>
+      
+      <h3 id="modalTitle" class="text-xl font-bold text-white mb-2">Welcome to Orbit</h3>
+      <p class="text-xs text-slate-400 mb-6">Sign in securely with your Firebase account credentials.</p>
+
+      <form id="authForm" onsubmit="handleAuth(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Email Address</label>
+          <input type="email" id="email" required class="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-indigo-500" placeholder="name@domain.com" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-300 mb-1">Password</label>
+          <input type="password" id="password" required class="w-full bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-indigo-500" placeholder="••••••••" />
+        </div>
+        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-3 rounded-lg text-sm font-medium transition shadow-lg shadow-indigo-600/25">
+          Continue to Dashboard
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <footer class="text-center text-xs text-slate-600 py-4 border-t border-slate-900">
+    &copy; 2026 Project Orbit. Open-source under MIT License.
+  </footer>
+
+  <script>
+    lucide.createIcons();
+
+    // Initialize Firebase (Replace with your actual project keys)
+    const firebaseConfig = {
+      apiKey: "YOUR_FIREBASE_API_KEY",
+      authDomain: "YOUR_PROJECT.firebaseapp.com",
+      projectId: "YOUR_PROJECT_ID"
+    };
+    firebase.initializeApp(firebaseConfig);
+
+    function openAuthModal() {
+      document.getElementById('authModal').classList.remove('hidden');
+      document.getElementById('authModal').classList.add('flex');
+    }
+
+    function closeAuthModal() {
+      document.getElementById('authModal').classList.remove('flex');
+      document.getElementById('authModal').classList.add('hidden');
+    }
+
+    async function handleAuth(e) {
+      e.preventDefault();
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+
+      try {
+        // Attempt to log in or create user if they don't exist
+        await firebase.auth().signInWithEmailAndPassword(email, password);
+        window.location.href = 'index.html'; // Redirect to dashboard on success
+      } catch (error) {
+        try {
+          await firebase.auth().createUserWithEmailAndPassword(email, password);
+          window.location.href = 'index.html';
+        } catch (signupError) {
+          alert('Authentication failed: ' + signupError.message);
+        }
+      }
+    }
+  </script>
+</body>
+        </html>
+        
