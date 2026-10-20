@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Orbit | Team Management</title>
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- React & ReactDOM CDNs -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  
+  <!-- Babel Compiler CDN -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Firebase CDNs (Compat v10) -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: { 500: '#818cf8', 600: '#6366f1', 700: '#4f46e5' }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body { background-color: #020617; color: #f8fafc; font-family: system-ui, sans-serif; }
+    .glow-effect { box-shadow: 0 0 25px -5px rgba(99, 102, 241, 0.3); }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen antialiased">
+
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect } = React;
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyC6rkFwNm_xecCETuaLTrbIBN6j_jq7bz8",
+      authDomain: "study-logger-a8e54.firebaseapp.com",
+      projectId: "study-logger-a8e54",
+      storageBucket: "study-logger-a8e54.firebasestorage.app",
+      messagingSenderId: "98981862496",
+      appId: "1:98981862496:web:d65e5a840f5205beecb705"
+    };
+
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    function App() {
+      const [user, setUser] = useState(null);
+      const [loading, setLoading] = useState(true);
+
+      useEffect(() => {
+        const unsubscribe = auth.onAuthStateChanged((currentUser) => {
+          setUser(currentUser);
+          setLoading(false);
+        });
+        return () => unsubscribe();
+      }, []);
+
+      if (loading) {
+        return (
+          <div className="min-h-screen flex items-center justify-center bg-slate-950 text-indigo-400 font-mono text-sm animate-pulse">
+            Loading Orbit Teams...
+          </div>
+        );
+      }
+
+      if (!user) {
+        window.location.href = 'landing.html';
+        return null;
+      }
+
+      return <TeamsDashboard user={user} onLogout={() => auth.signOut().then(() => window.location.href = 'landing.html')} />;
+    }
+
+    function TeamsDashboard({ user, onLogout }) {
+      const [teams, setTeams] = useState([]);
+      const [selectedTeam, setSelectedTeam] = useState(null);
+      const [showCreateModal, setShowCreateModal] = useState(false);
+      const [showMemberModal, setShowMemberModal] = useState(false);
+      
+      const [newTeamName, setNewTeamName] = useState("");
+      const [newMemberEmail, setNewMemberEmail] = useState("");
+      const [newMemberRole, setNewMemberRole] = useState("Member");
+
+      // Load teams where user is owner or member
+      useEffect(() => {
+        const unsubscribe = db.collection("teams").onSnapshot((snapshot) => {
+          const allTeams = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          // Filter teams created by or containing the user
+          const userTeams = allTeams.filter(t => t.ownerEmail === user.email || (t.members && t.members.some(m => m.email === user.email)));
+          setTeams(userTeams);
+          if (userTeams.length > 0 && !selectedTeam) {
+            setSelectedTeam(userTeams[0]);
+          } else if (selectedTeam) {
+            // Keep selected team updated
+            const updated = userTeams.find(t => t.id === selectedTeam.id);
+            if (updated) setSelectedTeam(updated);
+          }
+        });
+        return () => unsubscribe();
+      }, [user]);
+
+      useEffect(() => {
+        if (window.lucide) window.lucide.createIcons();
+      }, [teams, selectedTeam, showCreateModal, showMemberModal]);
+
+      // Create Team (Limit: Max 2 teams per user creation)
+      const handleCreateTeam = async (e) => {
+        e.preventDefault();
+        if (!newTeamName.trim()) return;
+
+        const ownedTeams = teams.filter(t => t.ownerEmail === user.email);
+        if (ownedTeams.length >= 2) {
+          alert("You can only create up to 2 teams currently.");
+          return;
+        }
+
+        try {
+          const teamRef = await db.collection("teams").add({
+            name: newTeamName.trim(),
+            ownerEmail: user.email,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            members: [
+              { email: user.email, role: "Owner" }
+            ],
+            customRoles: ["Administrator", "Developer", "Designer"]
+          });
+
+          setNewTeamName("");
+          setShowCreateModal(false);
+        } catch (err) {
+          alert("Error creating team: " + err.message);
+        }
+      };
+
+      // Add Member to Team
+      const handleAddMember = async (e) => {
+        e.preventDefault();
+        if (!newMemberEmail.trim() || !selectedTeam) return;
+
+        const updatedMembers = [...(selectedTeam.members || [])];
+        if (updatedMembers.some(m => m.email === newMemberEmail.trim())) {
+          alert("Member already exists in this team.");
+          return;
+        }
+
+        updatedMembers.push({ email: newMemberEmail.trim(), role: newMemberRole });
+
+        try {
+          await db.collection("teams").doc(selectedTeam.id).update({
+            members: updatedMembers
+          });
+          setNewMemberEmail("");
+          setShowMemberModal(false);
+        } catch (err) {
+          alert("Error adding member: " + err.message);
+        }
+      };
+
+      // Change Member Role
+      const handleUpdateRole = async (memberEmail, newRole) => {
+        if (!selectedTeam) return;
+        const updatedMembers = selectedTeam.members.map(m => {
+          if (m.email === memberEmail) {
+            return { ...m, role: newRole };
+          }
+          return m;
+        });
+
+        try {
+          await db.collection("teams").doc(selectedTeam.id).update({
+            members: updatedMembers
+          });
+        } catch (err) {
+          alert("Error updating role: " + err.message);
+        }
+      };
+
+      const isOwnerOrAdmin = selectedTeam && (
+        selectedTeam.ownerEmail === user.email || 
+        (selectedTeam.members || []).some(m => m.email === user.email && (m.role === 'Owner' || m.role === 'Administrator'))
+      );
+
+      return (
+        <div className="max-w-7xl mx-auto p-6">
+          
+          {/* Header */}
+          <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 pb-4 border-b border-slate-800 gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center glow-effect">
+                <i data-lucide="users" class="w-6 h-6 text-indigo-400"></i>
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
+                  ORBIT TEAMS
+                  <span className="text-xs bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded-full border border-indigo-500/20 font-medium">Collaboration Hub</span>
+                </h1>
+                <p className="text-xs text-slate-400">Manage your squads and granular roles</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <a href="index.html" className="text-xs bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 px-3 py-2 rounded-lg font-medium transition">
+                ← Mission Control Dashboard
+              </a>
+              <button onClick={() => setShowCreateModal(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg font-medium text-sm transition shadow-lg shadow-indigo-600/25">
+                <i data-lucide="plus" class="w-4 h-4"></i> Create Team
+              </button>
+              <button onClick={onLogout} className="bg-slate-900 hover:bg-red-950 text-slate-400 hover:text-red-400 border border-slate-800 px-3 py-2 rounded-lg text-xs transition" title="Sign Out">
+                <i data-lucide="log-out" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </header>
+
+          {/* Teams Selector Bar */}
+          <div className="flex items-center gap-3 mb-6 overflow-x-auto pb-2">
+            {teams.length === 0 ? (
+              <p className="text-xs text-slate-500">No teams found. Click "Create Team" to set up your first squad!</p>
+            ) : (
+              teams.map((team) => (
+                <button
+                  key={team.id}
+                  onClick={() => setSelectedTeam(team)}
+                  className={`px-4 py-2.5 rounded-xl border text-sm font-medium transition flex items-center gap-2 whitespace-nowrap ${
+                    selectedTeam?.id === team.id
+                      ? 'bg-indigo-600/20 border-indigo-500 text-white glow-effect'
+                      : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <i data-lucide="shield" class="w-4 h-4 text-indigo-400"></i>
+                  {team.name}
+                  {team.ownerEmail === user.email && <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded">Owner</span>}
+                </button>
+              ))
+            )}
+          </div>
+
+          {/* Selected Team Content */}
+          {selectedTeam ? (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              
+              {/* Team Info & Members List */}
+              <div className="lg:col-span-8 bg-slate-900/60 border border-slate-800 rounded-xl p-5">
+                <div className="flex justify-between items-center mb-6">
+                  <div>
+                    <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                      {selectedTeam.name}
+                    </h2>
+                    <p className="text-xs text-slate-400">Team Owner: <span className="text-indigo-300">{selectedTeam.ownerEmail}</span></p>
+                  </div>
+                  
+                  {isOwnerOrAdmin && (
+                    <button onClick={() => setShowMemberModal(true)} className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-lg text-xs font-medium transition border border-slate-700">
+                      <i data-lucide="user-plus" class="w-4 h-4 text-indigo-400"></i> Add Member
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-y-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">Team Members & Roles</h3>
+                  {selectedTeam.members && selectedTeam.members.map((member, idx) => (
+                    <div key={idx} className="p-3 bg-slate-950/70 rounded-lg border border-slate-800/80 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-xs font-bold text-indigo-300">
+                          {member.email.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="text-sm text-slate-200 font-medium">{member.email}</p>
+                          <p className="text-[10px] text-slate-500 font-mono">Role: {member.role}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs px-2.5 py-1 rounded-md font-medium border ${
+                          member.role === 'Owner' ? 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20' :
+                          member.role === 'Administrator' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                          'bg-slate-900 text-slate-400 border-slate-800'
+                        }`}>
+                          {member.role}
+                        </span>
+
+                        {isOwnerOrAdmin && member.role !== 'Owner' && (
+                          <select
+                            value={member.role}
+                            onChange={(e) => handleUpdateRole(member.email, e.target.value)}
+                            className="bg-slate-900 text-xs border border-slate-700 rounded p-1 text-slate-300 focus:outline-none"
+                          >
+                            <option value="Administrator">Administrator</option>
+                            <option value="Developer">Developer</option>
+                            <option value="Designer">Designer</option>
+                            <option value="Member">Member</option>
+                          </select>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Team Privileges & Summary Panel */}
+              <div className="lg:col-span-4 bg-slate-900/60 border border-slate-800 rounded-xl p-5">
+                <h3 className="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-2">
+                  <i data-lucide="shield-check" class="w-4 h-4 text-indigo-400"></i> Permission Control
+                </h3>
+                <p className="text-xs text-slate-400 mb-4">
+                  Owners and Administrators have full authority to grant roles and manage team workspace resources.
+                </p>
+                <div className="p-3 bg-slate-950/70 rounded-lg border border-slate-800 text-xs space-y-2">
+                  <div className="flex justify-between text-slate-300">
+                    <span>Total Members:</span>
+                    <span className="font-bold text-indigo-400">{selectedTeam.members ? selectedTeam.members.length : 0}</span>
+                  </div>
+                  <div className="flex justify-between text-slate-300">
+                    <span>Your Access Level:</span>
+                    <span className="font-bold text-emerald-400">
+                      {selectedTeam.ownerEmail === user.email ? 'Owner' : (selectedTeam.members?.find(m => m.email === user.email)?.role || 'Member')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          ) : null}
+
+          {/* Create Team Modal */}
+          {showCreateModal && (
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl max-w-md w-full shadow-2xl">
+                <h3 className="text-lg font-semibold text-white mb-4">Create New Team</h3>
+                <form onSubmit={handleCreateTeam} className="space-y-4">
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Team Name</label>
+                    <input 
+                      type="text" 
+                      placeholder="e.g. RoboRush Squad" 
+                      value={newTeamName}
+                      onChange={(e) => setNewTeamName(e.target.value)}
+                      required
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-3 pt-2">
+                    <button type="button" onClick={() => setShowCreateModal(false)} className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg text-sm hover:bg-slate-700">Cancel</button>
+                    <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-500">Create Team</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Add Member Modal */}
+          {showMemberModal && (
+            <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+              <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl max-w-md w-full shadow-2xl">
+                <h3 className="text-lg font-semibold text-white mb-4">Add Team Member</h3>
+                <form onSubmit={handleAddMember} className="space-y-4">
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Member Email Address</label>
+                    <input 
+                      type="email" 
+                      placeholder="colleague@domain.com" 
+                      value={newMemberEmail}
+                      onChange={(e) => setNewMemberEmail(e.target.value)}
+                      required
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Initial Role</label>
+                    <select 
+                      value={newMemberRole}
+                      onChange={(e) => setNewMemberRole(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value="Administrator">Administrator</option>
+                      <option value="Developer">Developer</option>
+                      <option value="Designer">Designer</option>
+                      <option value="Member">Member</option>
+                    </select>
+                  </div>
+
+                  <div className="flex justify-end gap-3 pt-2">
+                    <button type="button" onClick={() => setShowMemberModal(false)} className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg text-sm hover:bg-slate-700">Cancel</button>
+                    <button type="submit" className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-500">Add Member</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+  </html>
+  
