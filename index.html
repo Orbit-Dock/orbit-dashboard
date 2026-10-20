@@ -12,11 +12,16 @@
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   
-  <!-- Babel Compiler CDN (for running JSX in browser) -->
+  <!-- Babel Compiler CDN -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- Firebase CDNs (Compat v10) -->
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
 
   <script>
     tailwind.config = {
@@ -24,11 +29,7 @@
       theme: {
         extend: {
           colors: {
-            brand: {
-              500: '#818cf8',
-              600: '#6366f1',
-              700: '#4f46e5',
-            }
+            brand: { 500: '#818cf8', 600: '#6366f1', 700: '#4f46e5' }
           }
         }
       }
@@ -55,73 +56,138 @@
   <script type="text/babel">
     const { useState, useEffect } = React;
 
-    function OrbitDashboard() {
-      // Mock Activity Feed Data
-      const [activities, setActivities] = useState([
-        { id: 1, author: "Alex", action: "pushed 3 commits to", branch: "main", message: "feat: add GitHub webhook event parser", time: "5m ago", type: "push" },
-        { id: 2, author: "Sam", action: "opened pull request", branch: "dev/ui-fix", message: "fix: responsive task board layout", time: "22m ago", type: "pr" },
-        { id: 3, author: "Jan", action: "closed issue", branch: "#42", message: "bug: firestore socket timeout on reconnect", time: "1h ago", type: "issue" }
-      ]);
+    // Firebase Initialization
+    const firebaseConfig = {
+      apiKey: "AIzaSyC6rkFwNm_xecCETuaLTrbIBN6j_jq7bz8",
+      authDomain: "study-logger-a8e54.firebaseapp.com",
+      projectId: "study-logger-a8e54",
+      storageBucket: "study-logger-a8e54.firebasestorage.app",
+      messagingSenderId: "98981862496",
+      appId: "1:98981862496:web:d65e5a840f5205beecb705"
+    };
 
-      // Mock Task Board Data
-      const [tasks, setTasks] = useState([
-        { id: 101, title: "Configure Firebase Firestore Security Rules", assignedTo: "Alex", status: "In Progress", priority: "High" },
-        { id: 102, title: "Test Webhook signatures (x-hub-signature-256)", assignedTo: "Sam", status: "To Do", priority: "Medium" },
-        { id: 103, title: "Setup GitHub Action for automated gh-pages deployment", assignedTo: "Jan", status: "Done", priority: "Low" }
-      ]);
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
+    const auth = firebase.auth();
+    const db = firebase.firestore();
 
+    function App() {
+      const [user, setUser] = useState(null);
+      const [loading, setLoading] = useState(true);
+
+      useEffect(() => {
+        const unsubscribe = auth.onAuthStateChanged((currentUser) => {
+          setUser(currentUser);
+          setLoading(false);
+        });
+        return () => unsubscribe();
+      }, []);
+
+      if (loading) {
+        return (
+          <div className="min-h-screen flex items-center justify-center bg-slate-950 text-indigo-400 font-mono text-sm animate-pulse">
+            Initializing Orbit Mission Control...
+          </div>
+        );
+      }
+
+      // Security Guard: If not logged in, bounce back to landing page
+      if (!user) {
+        window.location.href = 'landing.html';
+        return null;
+      }
+
+      return <OrbitDashboard user={user} onLogout={() => auth.signOut().then(() => window.location.href = 'landing.html')} />;
+    }
+
+    function OrbitDashboard({ user, onLogout }) {
+      const [tasks, setTasks] = useState([]);
       const [showModal, setShowModal] = useState(false);
       const [newTaskTitle, setNewTaskTitle] = useState("");
       const [newTaskAssignee, setNewTaskAssignee] = useState("Alex");
       const [newTaskPriority, setNewTaskPriority] = useState("Medium");
 
-      // Auto-load icons after render
+      // GitHub Live Integration State
+      const [githubUser, setGithubUser] = useState(localStorage.getItem('orbit_gh_user') || '');
+      const [isEditingUser, setIsEditingUser] = useState(!githubUser);
+      const [fetchedActivities, setFetchedActivities] = useState([]);
+
+      // 1. Real-time Firestore Task Listener
+      useEffect(() => {
+        const unsubscribe = db.collection("tasks").orderBy("createdAt", "desc").onSnapshot((snapshot) => {
+          const liveTasks = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }));
+          setTasks(liveTasks);
+        });
+        return () => unsubscribe();
+      }, []);
+
+      // 2. Fetch Public GitHub Activity Stream
+      useEffect(() => {
+        if (!githubUser) return;
+        localStorage.setItem('orbit_gh_user', githubUser);
+
+        fetch(`https://api.github.com/users/${githubUser}/events/public`)
+          .then(res => res.json())
+          .then(data => {
+            if (Array.isArray(data)) {
+              const formattedEvents = data.slice(0, 10).map((event, index) => {
+                let actionText = "performed action on";
+                let repoName = event.repo ? event.repo.name : "repository";
+                let msg = event.type;
+
+                if (event.type === "PushEvent") {
+                  actionText = `pushed ${event.payload.commits ? event.payload.commits.length : 1} commit(s) to`;
+                  msg = event.payload.commits ? event.payload.commits[0].message : "Code update";
+                } else if (event.type === "PullRequestEvent") {
+                  actionText = `${event.payload.action} pull request in`;
+                  msg = event.payload.pull_request.title;
+                }
+
+                return {
+                  id: event.id || index,
+                  author: githubUser,
+                  action: actionText,
+                  branch: repoName,
+                  message: msg,
+                  time: new Date(event.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                };
+              });
+              setFetchedActivities(formattedEvents);
+            }
+          })
+          .catch(err => console.error("Error fetching GitHub events:", err));
+      }, [githubUser]);
+
+      // Auto-load Lucide icons after state or render changes
       useEffect(() => {
         if (window.lucide) {
           window.lucide.createIcons();
         }
-      }, [activities, tasks, showModal]);
+      }, [tasks, showModal, fetchedActivities, isEditingUser]);
 
-      const handleAddTask = (e) => {
+      // 3. Permanent Firestore Task Submitter
+      const handleAddTask = async (e) => {
         e.preventDefault();
         if (!newTaskTitle.trim()) return;
 
-        const newTask = {
-          id: Date.now(),
-          title: newTaskTitle,
-          assignedTo: newTaskAssignee,
-          status: "To Do",
-          priority: newTaskPriority
-        };
-
-        setTasks([newTask, ...tasks]);
-        setNewTaskTitle("");
-        setShowModal(false);
-      };
-
-      const simulateWebhook = () => {
-        const authors = ["Alex", "Sam", "Jan", "Mons", "Timmy"];
-        const messages = [
-          "refactor: optimize commit fetch queries",
-          "fix: CORS headers for Vercel functions",
-          "docs: update deployment instructions in README",
-          "style: dark theme glowing neon accents"
-        ];
-        
-        const randomAuthor = authors[Math.floor(Math.random() * authors.length)];
-        const randomMsg = messages[Math.floor(Math.random() * messages.length)];
-
-        const newEvent = {
-          id: Date.now(),
-          author: randomAuthor,
-          action: "pushed 1 commit to",
-          branch: "main",
-          message: randomMsg,
-          time: "Just now",
-          type: "push"
-        };
-
-        setActivities([newEvent, ...activities]);
+        try {
+          await db.collection("tasks").add({
+            title: newTaskTitle,
+            assignedTo: newTaskAssignee,
+            status: "To Do",
+            priority: newTaskPriority,
+            createdBy: user.email,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+          });
+          setNewTaskTitle("");
+          setShowModal(false);
+        } catch (err) {
+          alert("Error saving task: " + err.message);
+        }
       };
 
       return (
@@ -130,7 +196,6 @@
           {/* Top Header */}
           <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 pb-4 border-b border-slate-800 gap-4">
             <div className="flex items-center gap-3">
-              {/* Atomic Orbit Metallic Logo */}
               <div className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center glow-effect">
                 <i data-lucide="atom" class="w-6 h-6 text-indigo-400"></i>
               </div>
@@ -138,14 +203,34 @@
                 <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
                   PROJECT ORBIT
                   <span className="text-xs bg-indigo-500/10 text-indigo-400 px-2 py-0.5 rounded-full border border-indigo-500/20 font-medium">
-                    v1.0 MVP
+                    v1.0 Live
                   </span>
                 </h1>
-                <p className="text-xs text-slate-400">Team activity & task control center</p>
+                <p className="text-xs text-slate-400">Connected as: <span className="text-indigo-300 font-medium">{user.email}</span></p>
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex items-center flex-wrap gap-3">
+              {/* GitHub Handle Input Widget */}
+              <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 px-3 py-1.5 rounded-lg text-xs">
+                <i data-lucide="github" class="w-4 h-4 text-indigo-400"></i>
+                {isEditingUser ? (
+                  <form onSubmit={(e) => {
+                    e.preventDefault();
+                    const val = e.target.elements.gh.value.trim();
+                    if(val) { setGithubUser(val); setIsEditingUser(false); }
+                  }} className="flex items-center gap-1.5">
+                    <input name="gh" type="text" defaultValue={githubUser} placeholder="GitHub username..." className="bg-slate-950 text-white px-2 py-1 rounded border border-slate-700 focus:outline-none focus:border-indigo-500 text-xs" />
+                    <button type="submit" className="bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-500">Set</button>
+                  </form>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-300 font-medium">@{githubUser || "Enter GH Handle"}</span>
+                    <button onClick={() => setIsEditingUser(true)} className="text-slate-500 hover:text-indigo-400 underline">Edit</button>
+                  </div>
+                )}
+              </div>
+
               <a 
                 href="landing.html" 
                 className="text-xs bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 px-3 py-2 rounded-lg font-medium transition"
@@ -153,42 +238,23 @@
                 ← Home
               </a>
               <button 
-                onClick={simulateWebhook}
-                className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 px-3 py-2 rounded-lg font-medium text-xs transition"
-              >
-                <i data-lucide="radio" class="w-4 h-4 text-emerald-400"></i> Simulate Commit
-              </button>
-              <button 
                 onClick={() => setShowModal(true)}
                 className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg font-medium text-sm transition shadow-lg shadow-indigo-600/25"
               >
                 <i data-lucide="plus" class="w-4 h-4"></i> New Task
               </button>
+              <button 
+                onClick={onLogout}
+                className="bg-slate-900 hover:bg-red-950 text-slate-400 hover:text-red-400 border border-slate-800 px-3 py-2 rounded-lg text-xs transition"
+                title="Sign Out"
+              >
+                <i data-lucide="log-out" class="w-4 h-4"></i>
+              </button>
             </div>
           </header>
 
           {/* Metric Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-            <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
-              <div>
-                <p className="text-xs text-slate-400 uppercase tracking-wider">Commits Today</p>
-                <p className="text-2xl font-bold mt-1 text-white">{activities.length + 18}</p>
-              </div>
-              <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-lg border border-indigo-500/20">
-                <i data-lucide="git-commit" class="w-5 h-5"></i>
-              </div>
-            </div>
-
-            <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
-              <div>
-                <p className="text-xs text-slate-400 uppercase tracking-wider">Open PRs</p>
-                <p className="text-2xl font-bold mt-1 text-white">2</p>
-              </div>
-              <div className="p-3 bg-amber-500/10 text-amber-400 rounded-lg border border-amber-500/20">
-                <i data-lucide="git-pull-request" class="w-5 h-5"></i>
-              </div>
-            </div>
-
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
             <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
               <div>
                 <p className="text-xs text-slate-400 uppercase tracking-wider">Active Tasks</p>
@@ -201,11 +267,21 @@
 
             <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
               <div>
-                <p className="text-xs text-slate-400 uppercase tracking-wider">Active Team</p>
-                <p className="text-2xl font-bold mt-1 text-white">5 Members</p>
+                <p className="text-xs text-slate-400 uppercase tracking-wider">Total Tasks Logged</p>
+                <p className="text-2xl font-bold mt-1 text-white">{tasks.length}</p>
+              </div>
+              <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-lg border border-indigo-500/20">
+                <i data-lucide="list-todo" class="w-5 h-5"></i>
+              </div>
+            </div>
+
+            <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-xl flex items-center justify-between">
+              <div>
+                <p className="text-xs text-slate-400 uppercase tracking-wider">Database Sync</p>
+                <p className="text-2xl font-bold mt-1 text-emerald-400 text-sm">Firestore Online</p>
               </div>
               <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-lg border border-emerald-500/20">
-                <i data-lucide="users" class="w-5 h-5"></i>
+                <i data-lucide="database" class="w-5 h-5"></i>
               </div>
             </div>
           </div>
@@ -213,60 +289,70 @@
           {/* Main Grid: Feed + Tasks */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             
-            {/* Live Git Activity Feed */}
+            {/* Live GitHub Activity Feed */}
             <div className="lg:col-span-7 bg-slate-900/60 border border-slate-800 rounded-xl p-5">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-lg font-semibold text-slate-200 flex items-center gap-2">
-                  <i data-lucide="activity" class="w-5 h-5 text-indigo-400"></i> Live Git Activity
+                  <i data-lucide="activity" class="w-5 h-5 text-indigo-400"></i> Live GitHub Activity Feed
                 </h2>
                 <span className="text-xs bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span> Webhook Active
+                  <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span> {githubUser ? `@${githubUser}` : 'Idle'}
                 </span>
               </div>
 
               <div className="space-y-3">
-                {activities.map((act) => (
-                  <div key={act.id} className="p-3 bg-slate-950/70 rounded-lg border border-slate-800/80 flex items-start justify-between">
-                    <div>
-                      <p className="text-sm text-slate-300">
-                        <span className="font-semibold text-white">{act.author}</span> {act.action} <span className="text-indigo-400 font-mono text-xs bg-indigo-950/50 px-1.5 py-0.5 rounded border border-indigo-800/40">{act.branch}</span>
-                      </p>
-                      <p className="text-xs text-slate-400 mt-1 font-mono">{act.message}</p>
-                    </div>
-                    <span className="text-xs text-slate-500 font-mono">{act.time}</span>
+                {fetchedActivities.length === 0 ? (
+                  <div className="text-center py-10 text-slate-500 text-xs">
+                    <p>Type a GitHub username above to stream live public commits and developer activity instantly!</p>
                   </div>
-                ))}
+                ) : (
+                  fetchedActivities.map((act) => (
+                    <div key={act.id} className="p-3 bg-slate-950/70 rounded-lg border border-slate-800/80 flex items-start justify-between">
+                      <div>
+                        <p className="text-sm text-slate-300">
+                          <span className="font-semibold text-white">{act.author}</span> {act.action} <span className="text-indigo-400 font-mono text-xs bg-indigo-950/50 px-1.5 py-0.5 rounded border border-indigo-800/40">{act.branch}</span>
+                        </p>
+                        <p className="text-xs text-slate-400 mt-1 font-mono">{act.message}</p>
+                      </div>
+                      <span className="text-xs text-slate-500 font-mono">{act.time}</span>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 
-            {/* Task Board */}
+            {/* Persistent Task Board */}
             <div className="lg:col-span-5 bg-slate-900/60 border border-slate-800 rounded-xl p-5">
               <h2 className="text-lg font-semibold mb-4 text-slate-200 flex items-center gap-2">
-                <i data-lucide="list-todo" class="w-5 h-5 text-indigo-400"></i> Specific Work Needed
+                <i data-lucide="list-todo" class="w-5 h-5 text-indigo-400"></i> Team Work & Tasks
               </h2>
 
               <div className="space-y-3">
-                {tasks.map((task) => (
-                  <div key={task.id} className="p-3 bg-slate-950/70 rounded-lg border border-slate-800/80 flex flex-col gap-2">
-                    <div className="flex justify-between items-start">
-                      <p className="text-sm text-slate-200 font-medium">{task.title}</p>
-                      <span className={`text-[10px] px-2 py-0.5 rounded uppercase font-semibold border ${
-                        task.priority === 'High' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
-                        task.priority === 'Medium' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
-                        'bg-slate-800 text-slate-400 border-slate-700'
-                      }`}>
-                        {task.priority}
-                      </span>
-                    </div>
+                {tasks.length === 0 ? (
+                  <p className="text-xs text-slate-500 text-center py-10">No tasks saved yet. Click "New Task" to add one!</p>
+                ) : (
+                  tasks.map((task) => (
+                    <div key={task.id} className="p-3 bg-slate-950/70 rounded-lg border border-slate-800/80 flex flex-col gap-2">
+                      <div className="flex justify-between items-start">
+                        <p className="text-sm text-slate-200 font-medium">{task.title}</p>
+                        <span className={`text-[10px] px-2 py-0.5 rounded uppercase font-semibold border ${
+                          task.priority === 'High' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                          task.priority === 'Medium' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                          'bg-slate-800 text-slate-400 border-slate-700'
+                        }`}>
+                          {task.priority}
+                        </span>
+                      </div>
 
-                    <div className="flex justify-between items-center text-xs text-slate-400 mt-1 pt-2 border-t border-slate-900">
-                      <span>Assigned: <span className="text-slate-200 font-medium">{task.assignedTo}</span></span>
-                      <span className="bg-indigo-950/60 text-indigo-300 px-2 py-0.5 rounded border border-indigo-800/50">
-                        {task.status}
-                      </span>
+                      <div className="flex justify-between items-center text-xs text-slate-400 mt-1 pt-2 border-t border-slate-900">
+                        <span>Assigned: <span className="text-slate-200 font-medium">{task.assignedTo}</span></span>
+                        <span className="bg-indigo-950/60 text-indigo-300 px-2 py-0.5 rounded border border-indigo-800/50">
+                          {task.status}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
 
@@ -276,15 +362,16 @@
           {showModal && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
               <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl max-w-md w-full shadow-2xl">
-                <h3 className="text-lg font-semibold text-white mb-4">Add Specific Work Needed</h3>
+                <h3 className="text-lg font-semibold text-white mb-4">Add Task to Firestore</h3>
                 <form onSubmit={handleAddTask} className="space-y-4">
                   <div>
                     <label className="block text-xs text-slate-400 mb-1">Task Description</label>
                     <input 
                       type="text" 
-                      placeholder="e.g. Add rate limiting to Express API" 
+                      placeholder="e.g. Optimize Vercel deployment pipeline" 
                       value={newTaskTitle}
                       onChange={(e) => setNewTaskTitle(e.target.value)}
+                      required
                       className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
                     />
                   </div>
@@ -301,6 +388,7 @@
                         <option value="Sam">Sam</option>
                         <option value="Jan">Jan</option>
                         <option value="Mons">Mons</option>
+                        <option value="Brother">Brother</option>
                       </select>
                     </div>
 
@@ -342,7 +430,7 @@
       );
     }
 
-    ReactDOM.createRoot(document.getElementById('root')).render(<OrbitDashboard />);
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
 </body>
 </html>
