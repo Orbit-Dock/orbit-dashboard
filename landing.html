@@ -7,7 +7,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
   
-  <!-- Firebase SDKs -->
+  <!-- Firebase SDKs (Compat version to match script usage) -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
 
@@ -85,13 +85,20 @@
   <script>
     lucide.createIcons();
 
-    // Initialize Firebase (Replace with your actual project keys)
+    // Initialize Firebase with your provided keys
     const firebaseConfig = {
-      apiKey: "YOUR_FIREBASE_API_KEY",
-      authDomain: "YOUR_PROJECT.firebaseapp.com",
-      projectId: "YOUR_PROJECT_ID"
+      apiKey: "AIzaSyC6rkFwNm_xecCETuaLTrbIBN6j_jq7bz8",
+      authDomain: "study-logger-a8e54.firebaseapp.com",
+      projectId: "study-logger-a8e54",
+      storageBucket: "study-logger-a8e54.firebasestorage.app",
+      messagingSenderId: "98981862496",
+      appId: "1:98981862496:web:d65e5a840f5205beecb705",
+      measurementId: "G-YLR4WJRGGE"
     };
-    firebase.initializeApp(firebaseConfig);
+    
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
 
     function openAuthModal() {
       document.getElementById('authModal').classList.remove('hidden');
@@ -123,5 +130,4 @@
     }
   </script>
 </body>
-        </html>
-        
+</html>
