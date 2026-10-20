@@ -7,7 +7,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
   
-  <!-- Firebase SDKs (Compat version to match script usage) -->
+  <!-- Firebase SDKs (Compat version) -->
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
 
@@ -26,9 +26,11 @@
       </div>
       <span class="font-bold text-lg tracking-tight text-white">ORBIT</span>
     </div>
-    <button onclick="openAuthModal()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow-lg shadow-indigo-600/25">
-      Sign In
-    </button>
+    <div id="authButtonContainer">
+      <button onclick="openAuthModal()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow-lg shadow-indigo-600/25">
+        Sign In
+      </button>
+    </div>
   </header>
 
   <!-- Hero Section -->
@@ -42,7 +44,7 @@
     <p class="text-slate-400 text-lg max-w-2xl mx-auto mb-10">
       Track GitHub commits, pull requests, and team tasks in a unified mission control dashboard without the constant chat pings.
     </p>
-    <div class="flex justify-center gap-4">
+    <div class="flex justify-center gap-4" id="heroButtons">
       <button onclick="openAuthModal()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-xl font-medium transition glow">
         Get Started Free
       </button>
@@ -85,7 +87,7 @@
   <script>
     lucide.createIcons();
 
-    // Initialize Firebase with your provided keys
+    // Initialize Firebase with your project keys
     const firebaseConfig = {
       apiKey: "AIzaSyC6rkFwNm_xecCETuaLTrbIBN6j_jq7bz8",
       authDomain: "study-logger-a8e54.firebaseapp.com",
@@ -100,7 +102,29 @@
       firebase.initializeApp(firebaseConfig);
     }
 
+    const auth = firebase.auth();
+
+    // Smart Session Listener: Automatically swaps buttons if already authenticated
+    auth.onAuthStateChanged((user) => {
+      if (user) {
+        document.getElementById('authButtonContainer').innerHTML = `
+          <a href="index.html" class="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow-lg shadow-emerald-600/25 flex items-center gap-2">
+            <span>Go to Dashboard →</span>
+          </a>
+        `;
+        document.getElementById('heroButtons').innerHTML = `
+          <a href="index.html" class="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-xl font-medium transition glow">
+            Open Mission Control
+          </a>
+        `;
+      }
+    });
+
     function openAuthModal() {
+      if (auth.currentUser) {
+        window.location.href = 'index.html';
+        return;
+      }
       document.getElementById('authModal').classList.remove('hidden');
       document.getElementById('authModal').classList.add('flex');
     }
@@ -116,12 +140,11 @@
       const password = document.getElementById('password').value;
 
       try {
-        // Attempt to log in or create user if they don't exist
-        await firebase.auth().signInWithEmailAndPassword(email, password);
-        window.location.href = 'index.html'; // Redirect to dashboard on success
+        await auth.signInWithEmailAndPassword(email, password);
+        window.location.href = 'index.html';
       } catch (error) {
         try {
-          await firebase.auth().createUserWithEmailAndPassword(email, password);
+          await auth.createUserWithEmailAndPassword(email, password);
           window.location.href = 'index.html';
         } catch (signupError) {
           alert('Authentication failed: ' + signupError.message);
