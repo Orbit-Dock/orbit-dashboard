@@ -262,6 +262,14 @@
                 )}
               </div>
 
+              <!-- Teams Navigation Button -->
+              <a 
+                href="teams.html" 
+                className="text-xs bg-slate-900 hover:bg-slate-800 text-indigo-400 border border-indigo-500/30 px-3 py-2 rounded-lg font-medium transition flex items-center gap-1.5"
+              >
+                <i data-lucide="users" class="w-3.5 h-3.5"></i> Teams
+              </a>
+
               <a 
                 href="landing.html" 
                 className="text-xs bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 px-3 py-2 rounded-lg font-medium transition"
@@ -428,13 +436,4 @@
                       <select 
                         value={newTaskPriority}
                         onChange={(e) => setNewTaskPriority(e.target.value)}
-                        className="w-full bg-slate-950 border border-slate-800 rounded-lg p-2.5 text-sm text-white focus:outline-none focus:border-indigo-500"
-                      >
-                        <option value="Low">Low</option>
-                        <option value="Medium">Medium</option>
-                        <option value="High">High</option>
-                      </select>
-                    </div>
-                  </div>
-
-            
+                        className="w-full bg-slate-950 border border-sl
