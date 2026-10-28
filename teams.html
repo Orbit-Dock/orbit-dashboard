@@ -100,30 +100,41 @@
       const [newTeamName, setNewTeamName] = useState("");
       const [newMemberEmail, setNewMemberEmail] = useState("");
       const [newMemberRole, setNewMemberRole] = useState("Member");
+      const [fetchingData, setFetchingData] = useState(true);
 
-      // Load teams where user is owner or member
       useEffect(() => {
+        if (!user) return;
+        
         const unsubscribe = db.collection("teams").onSnapshot((snapshot) => {
           const allTeams = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          // Filter teams created by or containing the user
           const userTeams = allTeams.filter(t => t.ownerEmail === user.email || (t.members && t.members.some(m => m.email === user.email)));
+          
           setTeams(userTeams);
-          if (userTeams.length > 0 && !selectedTeam) {
-            setSelectedTeam(userTeams[0]);
-          } else if (selectedTeam) {
-            // Keep selected team updated
-            const updated = userTeams.find(t => t.id === selectedTeam.id);
-            if (updated) setSelectedTeam(updated);
+          setFetchingData(false);
+
+          if (userTeams.length > 0) {
+            setSelectedTeam(prev => {
+              if (!prev) return userTeams[0];
+              const currentExists = userTeams.find(t => t.id === prev.id);
+              return currentExists || userTeams[0];
+            });
+          } else {
+            setSelectedTeam(null);
           }
+        }, (err) => {
+          console.error("Firestore teams error:", err);
+          setFetchingData(false);
         });
+
         return () => unsubscribe();
       }, [user]);
 
       useEffect(() => {
-        if (window.lucide) window.lucide.createIcons();
-      }, [teams, selectedTeam, showCreateModal, showMemberModal]);
+        if (window.lucide) {
+          window.lucide.createIcons();
+        }
+      });
 
-      // Create Team (Limit: Max 2 teams per user creation)
       const handleCreateTeam = async (e) => {
         e.preventDefault();
         if (!newTeamName.trim()) return;
@@ -135,7 +146,7 @@
         }
 
         try {
-          const teamRef = await db.collection("teams").add({
+          await db.collection("teams").add({
             name: newTeamName.trim(),
             ownerEmail: user.email,
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -152,7 +163,6 @@
         }
       };
 
-      // Add Member to Team
       const handleAddMember = async (e) => {
         e.preventDefault();
         if (!newMemberEmail.trim() || !selectedTeam) return;
@@ -176,7 +186,6 @@
         }
       };
 
-      // Change Member Role
       const handleUpdateRole = async (memberEmail, newRole) => {
         if (!selectedTeam) return;
         const updatedMembers = selectedTeam.members.map(m => {
@@ -200,14 +209,20 @@
         (selectedTeam.members || []).some(m => m.email === user.email && (m.role === 'Owner' || m.role === 'Administrator'))
       );
 
+      if (fetchingData) {
+        return (
+          <div className="min-h-screen flex items-center justify-center bg-slate-950 text-indigo-400 font-mono text-sm animate-pulse">
+            Syncing teams workspace...
+          </div>
+        );
+      }
+
       return (
         <div className="max-w-7xl mx-auto p-6">
-          
-          {/* Header */}
           <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 pb-4 border-b border-slate-800 gap-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center glow-effect">
-                <i data-lucide="users" class="w-6 h-6 text-indigo-400"></i>
+                <i data-lucide="users" className="w-6 h-6 text-indigo-400"></i>
               </div>
               <div>
                 <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
@@ -223,18 +238,20 @@
                 ← Mission Control Dashboard
               </a>
               <button onClick={() => setShowCreateModal(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg font-medium text-sm transition shadow-lg shadow-indigo-600/25">
-                <i data-lucide="plus" class="w-4 h-4"></i> Create Team
+                <i data-lucide="plus" className="w-4 h-4"></i> Create Team
               </button>
               <button onClick={onLogout} className="bg-slate-900 hover:bg-red-950 text-slate-400 hover:text-red-400 border border-slate-800 px-3 py-2 rounded-lg text-xs transition" title="Sign Out">
-                <i data-lucide="log-out" class="w-4 h-4"></i>
+                <i data-lucide="log-out" className="w-4 h-4"></i>
               </button>
             </div>
           </header>
 
-          {/* Teams Selector Bar */}
           <div className="flex items-center gap-3 mb-6 overflow-x-auto pb-2">
             {teams.length === 0 ? (
-              <p className="text-xs text-slate-500">No teams found. Click "Create Team" to set up your first squad!</p>
+              <div className="p-4 bg-slate-900/60 border border-slate-800 rounded-xl text-xs text-slate-400 flex items-center justify-between w-full">
+                <span>No teams found. Click "Create Team" to set up your first squad!</span>
+                <button onClick={() => setShowCreateModal(true)} className="text-indigo-400 underline font-medium">Create Now</button>
+              </div>
             ) : (
               teams.map((team) => (
                 <button
@@ -246,7 +263,7 @@
                       : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:text-slate-200'
                   }`}
                 >
-                  <i data-lucide="shield" class="w-4 h-4 text-indigo-400"></i>
+                  <i data-lucide="shield" className="w-4 h-4 text-indigo-400"></i>
                   {team.name}
                   {team.ownerEmail === user.email && <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-1.5 py-0.5 rounded">Owner</span>}
                 </button>
@@ -254,11 +271,8 @@
             )}
           </div>
 
-          {/* Selected Team Content */}
           {selectedTeam ? (
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              
-              {/* Team Info & Members List */}
               <div className="lg:col-span-8 bg-slate-900/60 border border-slate-800 rounded-xl p-5">
                 <div className="flex justify-between items-center mb-6">
                   <div>
@@ -270,7 +284,7 @@
                   
                   {isOwnerOrAdmin && (
                     <button onClick={() => setShowMemberModal(true)} className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-lg text-xs font-medium transition border border-slate-700">
-                      <i data-lucide="user-plus" class="w-4 h-4 text-indigo-400"></i> Add Member
+                      <i data-lucide="user-plus" className="w-4 h-4 text-indigo-400"></i> Add Member
                     </button>
                   )}
                 </div>
@@ -316,10 +330,9 @@
                 </div>
               </div>
 
-              {/* Team Privileges & Summary Panel */}
               <div className="lg:col-span-4 bg-slate-900/60 border border-slate-800 rounded-xl p-5">
                 <h3 className="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-2">
-                  <i data-lucide="shield-check" class="w-4 h-4 text-indigo-400"></i> Permission Control
+                  <i data-lucide="shield-check" className="w-4 h-4 text-indigo-400"></i> Permission Control
                 </h3>
                 <p className="text-xs text-slate-400 mb-4">
                   Owners and Administrators have full authority to grant roles and manage team workspace resources.
@@ -337,11 +350,18 @@
                   </div>
                 </div>
               </div>
-
             </div>
-          ) : null}
+          ) : (
+            <div className="text-center py-20 bg-slate-900/40 border border-slate-800 rounded-xl">
+              <i data-lucide="users" className="w-10 h-10 text-indigo-400 mx-auto mb-3 opacity-60"></i>
+              <p className="text-sm text-slate-300 font-medium mb-1">No Active Team Selected</p>
+              <p className="text-xs text-slate-500 mb-4">Create a new team to start collaborating with your squad.</p>
+              <button onClick={() => setShowCreateModal(true)} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-xs font-medium hover:bg-indigo-500 transition">
+                Create Team Now
+              </button>
+            </div>
+          )}
 
-          {/* Create Team Modal */}
           {showCreateModal && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
               <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl max-w-md w-full shadow-2xl">
@@ -367,7 +387,6 @@
             </div>
           )}
 
-          {/* Add Member Modal */}
           {showMemberModal && (
             <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
               <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl max-w-md w-full shadow-2xl">
@@ -407,13 +426,10 @@
               </div>
             </div>
           )}
-
         </div>
       );
     }
-
     ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
 </body>
-  </html>
-  
+</html>
